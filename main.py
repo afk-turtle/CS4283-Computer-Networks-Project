@@ -99,15 +99,32 @@ def build_stack():
 
 
 # =========================
+# PACKET DELIVERED SIGNAL
+# =========================
+
+class PacketDelivered(Exception):
+    pass
+
+
+# =========================
+# HELPERS
+# =========================
+
+def random_mac():
+    return ':'.join(f'{random.randint(0, 255):02X}' for _ in range(6))
+
+
+# =========================
 # DEVICE CLASSES
 # =========================
 
 class Device:
     def __init__(self, name):
         self.name = name
+        self.mac = random_mac()
         self.stack = build_stack()
         self.connections = []
-        self.home_router = None  # set during build_network
+        self.home_router = None
 
     def connect(self, other):
         if other not in self.connections:
@@ -119,7 +136,10 @@ class Device:
         print("Starting Encapsulation...\n")
         self.stack.process(data)
         print("\n--- TRANSMISSION START ---")
-        self.forward(data, destination, visited=set())
+        try:
+            self.forward(data, destination, visited=set())
+        except PacketDelivered:
+            pass
 
     def forward(self, data, destination, visited):
         if self in visited:
@@ -132,7 +152,7 @@ class Device:
 
         if self == destination:
             print(f"\n {self.name} ACCEPTED PACKET (DESTINATION REACHED)")
-            return
+            raise PacketDelivered
 
         if not self.connections:
             print("No connections. Packet dropped.")
@@ -141,13 +161,11 @@ class Device:
         self.handle_forwarding(data, destination, visited)
 
     def handle_forwarding(self, data, destination, visited):
-        # End devices forward up to their connected switch/hub
         for conn in self.connections:
             if isinstance(conn, (Switch, Hub)) and conn not in visited:
                 print(f"{self.name} forwarding to {conn.name}")
                 conn.forward(data, destination, visited)
                 return
-        # Fallback
         next_hop = random.choice(self.connections)
         print(f"{self.name} forwarding to {next_hop.name}")
         next_hop.forward(data, destination, visited)
@@ -157,7 +175,7 @@ class Router(Device):
     def handle_forwarding(self, data, destination, visited):
         print(f"{self.name} (ROUTER): Routing using IP")
 
-        # If destination is reachable through one of our switches/hubs, go there
+        # Check if destination is on a directly connected segment
         for conn in self.connections:
             if isinstance(conn, (Switch, Hub)) and conn not in visited:
                 for device in conn.connections:
@@ -169,12 +187,10 @@ class Router(Device):
         # Route toward destination's home router
         dst_router = destination.home_router
         if dst_router and dst_router not in visited:
-            # Try to find dst_router in our connections
             if dst_router in self.connections:
                 print(f"{self.name} → {dst_router.name} (direct route)")
                 dst_router.forward(data, destination, visited)
                 return
-            # Find a neighboring router closer to dst_router
             for conn in self.connections:
                 if isinstance(conn, Router) and conn not in visited:
                     if dst_router in conn.connections:
@@ -215,7 +231,7 @@ class Switch(Device):
                 conn.forward(data, destination, visited)
                 return
 
-        # Fallback: any unvisited
+        # Fallback: any unvisited connection
         unvisited = [c for c in self.connections if c not in visited]
         if unvisited:
             next_hop = random.choice(unvisited)
@@ -269,7 +285,7 @@ def build_network():
         for peripheral in peripherals:
             router.connect(peripheral)
             for _ in range(3):
-                devices[di].home_router = router  # tag each device with its router
+                devices[di].home_router = router
                 peripheral.connect(devices[di])
                 di += 1
 
@@ -283,7 +299,7 @@ def build_network():
 # DATA GENERATION
 # =========================
 
-def generate_data():
+def generate_data(sender):
     return {
         "host": "example.com",
         "path": "/",
@@ -291,7 +307,7 @@ def generate_data():
         "dst_ip": f"93.184.216.{random.randint(2, 254)}",
         "src_port": random.randint(40000, 60000),
         "dst_port": 80,
-        "src_mac": "AA:BB:CC:DD:EE:FF"
+        "src_mac": sender.mac
     }
 
 
@@ -307,11 +323,10 @@ def simulate():
     for i in range(10):
         sender = random.choice(devices)
         receiver = random.choice(devices)
-
         while sender == receiver:
             receiver = random.choice(devices)
 
-        data = generate_data()
+        data = generate_data(sender)
         sender.send(data, receiver)
 
 
