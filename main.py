@@ -186,7 +186,7 @@ def build_network():
     routers = [Router(f"Router{i}") for i in range(6)]
     switches = [Switch(f"Switch{i}") for i in range(10)]
     hubs = [Hub(f"Hub{i}") for i in range(10)]
-    devices = [Device(f"PC{i}") for i in range(60)]
+    devices = [Device(f"PC{i}") for i in range(59, 91)]
 
     # Connect routers
     for r in routers:
