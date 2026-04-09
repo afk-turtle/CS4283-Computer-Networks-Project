@@ -261,36 +261,51 @@ class Hub(Device):
 # =========================
 
 def build_network():
-    routers  = [Router(f"Router{i}") for i in range(6)]
-    switches = [Switch(f"Switch{i}") for i in range(10)]
-    hubs     = [Hub(f"Hub{i}") for i in range(9)]
-    devices  = [Device(f"PC{i}") for i in range(59, 113)]  # 54 end devices
+    num_routers = random.randint(6, 10)
+    routers = [Router(f"Router{i}") for i in range(num_routers)]
 
-    si = 0
-    hi = 0
-    di = 0
+    # Each router gets between 2-5 peripherals (mix of switches and hubs)
+    # We'll track how many of each we need first
+    router_peripheral_counts = [random.randint(2, 5) for _ in range(num_routers)]
+    total_peripherals = sum(router_peripheral_counts)
+
+    # Randomly split peripherals into switches and hubs
+    num_switches = random.randint(total_peripherals // 3, (2 * total_peripherals) // 3)
+    num_hubs = total_peripherals - num_switches
+
+    switches = [Switch(f"Switch{i}") for i in range(num_switches)]
+    hubs     = [Hub(f"Hub{i}") for i in range(num_hubs)]
+    peripherals_pool = switches + hubs
+    random.shuffle(peripherals_pool)
+
+    # Total devices = total_peripherals * 3
+    total_devices = total_peripherals * 3
+    devices = [Device(f"PC{i}") for i in range(59, 59 + total_devices)]
+
+    pi = 0  # peripheral index
+    di = 0  # device index
 
     for i, router in enumerate(routers):
-        router.connect(routers[(i + 1) % 6])
+        # Ring connection
+        router.connect(routers[(i + 1) % num_routers])
 
-        if i % 2 == 0:
-            peripherals = [switches[si], switches[si + 1], hubs[hi]]
-            si += 2
-            hi += 1
-        else:
-            peripherals = [switches[si], hubs[hi], hubs[hi + 1]]
-            si += 1
-            hi += 2
-
-        for peripheral in peripherals:
+        # Assign this router's peripherals
+        count = router_peripheral_counts[i]
+        for _ in range(count):
+            peripheral = peripherals_pool[pi]
+            pi += 1
             router.connect(peripheral)
             for _ in range(3):
                 devices[di].home_router = router
                 peripheral.connect(devices[di])
                 di += 1
 
-    for a, b in [(0, 3), (1, 4), (2, 5)]:
-        routers[a].connect(routers[b])
+    # Cross-links between opposite routers
+    for i in range(num_routers // 2):
+        routers[i].connect(routers[i + num_routers // 2])
+
+    print(f"Network built: {num_routers} routers, {num_switches} switches, "
+          f"{num_hubs} hubs, {total_devices} end devices")
 
     return devices
 
