@@ -17,7 +17,6 @@ class ApplicationLayer(Layer):
     def process(self, data):
         data["app_data"] = f"GET {data['path']} HTTP/1.1 | Host: {data['host']}"
         print("Application Layer: HTTP Request Created")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -26,7 +25,6 @@ class PresentationLayer(Layer):
     def process(self, data):
         data["encoded"] = data["app_data"].encode("utf-8")
         print("Presentation Layer: Data Encoded")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -35,7 +33,6 @@ class SessionLayer(Layer):
     def process(self, data):
         data["session_id"] = str(uuid.uuid4())
         print(f"Session Layer: Session ID = {data['session_id']}")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -48,7 +45,6 @@ class TransportLayer(Layer):
             "payload": data["encoded"]
         }
         print(f"Transport Layer: TCP Segment | {data['src_port']} → {data['dst_port']}")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -61,7 +57,6 @@ class NetworkLayer(Layer):
             "segment": data["segment"]
         }
         print(f"Network Layer: IP Packet | {data['src_ip']} → {data['dst_ip']}")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -74,7 +69,6 @@ class DataLinkLayer(Layer):
             "packet": data["packet"]
         }
         print(f"Data Link Layer: Frame | {data['src_mac']} → FF:FF:FF:FF:FF:FF")
-
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -82,10 +76,8 @@ class DataLinkLayer(Layer):
 class PhysicalLayer(Layer):
     def process(self, data):
         print("Physical Layer: Converting to bits...")
-
         frame_str = str(data["frame"])
         bits = ''.join(format(b, '08b') for b in frame_str.encode())
-
         print("Encapsulation: HTTP → TCP → IP → Ethernet → Bits")
         print("First 64 bits:", bits[:64], "...\n")
 
@@ -105,6 +97,7 @@ def build_stack():
         )
     )
 
+
 # =========================
 # DEVICE CLASSES
 # =========================
@@ -114,6 +107,7 @@ class Device:
         self.name = name
         self.stack = build_stack()
         self.connections = []
+        self.home_router = None  # set during build_network
 
     def connect(self, other):
         if other not in self.connections:
@@ -124,7 +118,6 @@ class Device:
         print(f"\n\n===== {self.name} SENDING MESSAGE TO {destination.name} =====")
         print("Starting Encapsulation...\n")
         self.stack.process(data)
-
         print("\n--- TRANSMISSION START ---")
         self.forward(data, destination, visited=set())
 
@@ -138,7 +131,7 @@ class Device:
         print(f"IP: {data['packet']['src_ip']} → {data['packet']['dst_ip']}")
 
         if self == destination:
-            print(f"\n🎯 {self.name} ACCEPTED PACKET (DESTINATION REACHED)")
+            print(f"\n {self.name} ACCEPTED PACKET (DESTINATION REACHED)")
             return
 
         if not self.connections:
@@ -148,6 +141,13 @@ class Device:
         self.handle_forwarding(data, destination, visited)
 
     def handle_forwarding(self, data, destination, visited):
+        # End devices forward up to their connected switch/hub
+        for conn in self.connections:
+            if isinstance(conn, (Switch, Hub)) and conn not in visited:
+                print(f"{self.name} forwarding to {conn.name}")
+                conn.forward(data, destination, visited)
+                return
+        # Fallback
         next_hop = random.choice(self.connections)
         print(f"{self.name} forwarding to {next_hop.name}")
         next_hop.forward(data, destination, visited)
@@ -156,22 +156,84 @@ class Device:
 class Router(Device):
     def handle_forwarding(self, data, destination, visited):
         print(f"{self.name} (ROUTER): Routing using IP")
-        next_hop = random.choice(self.connections)
-        print(f"{self.name} → {next_hop.name}")
-        next_hop.forward(data, destination, visited)
+
+        # If destination is reachable through one of our switches/hubs, go there
+        for conn in self.connections:
+            if isinstance(conn, (Switch, Hub)) and conn not in visited:
+                for device in conn.connections:
+                    if device == destination:
+                        print(f"{self.name} → {conn.name} (destination on this segment)")
+                        conn.forward(data, destination, visited)
+                        return
+
+        # Route toward destination's home router
+        dst_router = destination.home_router
+        if dst_router and dst_router not in visited:
+            # Try to find dst_router in our connections
+            if dst_router in self.connections:
+                print(f"{self.name} → {dst_router.name} (direct route)")
+                dst_router.forward(data, destination, visited)
+                return
+            # Find a neighboring router closer to dst_router
+            for conn in self.connections:
+                if isinstance(conn, Router) and conn not in visited:
+                    if dst_router in conn.connections:
+                        print(f"{self.name} → {conn.name} (via neighbor)")
+                        conn.forward(data, destination, visited)
+                        return
+
+        # Forward to any unvisited neighboring router
+        router_neighbors = [c for c in self.connections if isinstance(c, Router) and c not in visited]
+        if router_neighbors:
+            next_hop = random.choice(router_neighbors)
+            print(f"{self.name} → {next_hop.name}")
+            next_hop.forward(data, destination, visited)
+            return
+
+        # Last resort: any unvisited connection
+        unvisited = [c for c in self.connections if c not in visited]
+        if unvisited:
+            next_hop = random.choice(unvisited)
+            print(f"{self.name} → {next_hop.name}")
+            next_hop.forward(data, destination, visited)
 
 
 class Switch(Device):
     def handle_forwarding(self, data, destination, visited):
         print(f"{self.name} (SWITCH): Forwarding using MAC table")
-        next_hop = random.choice(self.connections)
-        print(f"{self.name} → {next_hop.name}")
-        next_hop.forward(data, destination, visited)
+
+        # Check if destination is directly connected
+        if destination in self.connections and destination not in visited:
+            print(f"{self.name} → {destination.name} (MAC match)")
+            destination.forward(data, destination, visited)
+            return
+
+        # Forward up to router
+        for conn in self.connections:
+            if isinstance(conn, Router) and conn not in visited:
+                print(f"{self.name} → {conn.name}")
+                conn.forward(data, destination, visited)
+                return
+
+        # Fallback: any unvisited
+        unvisited = [c for c in self.connections if c not in visited]
+        if unvisited:
+            next_hop = random.choice(unvisited)
+            print(f"{self.name} → {next_hop.name}")
+            next_hop.forward(data, destination, visited)
 
 
 class Hub(Device):
     def handle_forwarding(self, data, destination, visited):
-        print(f"{self.name} (HUB): Broadcasting to all devices")
+        print(f"{self.name} (HUB): Broadcasting to all ports")
+
+        # Check if destination is directly connected first
+        if destination in self.connections and destination not in visited:
+            print(f"{self.name} → {destination.name} (destination on this segment)")
+            destination.forward(data, destination, visited)
+            return
+
+        # Broadcast to all unvisited connections
         for device in self.connections:
             if device not in visited:
                 print(f"{self.name} → {device.name}")
@@ -183,20 +245,36 @@ class Hub(Device):
 # =========================
 
 def build_network():
-    routers = [Router(f"Router{i}") for i in range(6)]
+    routers  = [Router(f"Router{i}") for i in range(6)]
     switches = [Switch(f"Switch{i}") for i in range(10)]
-    hubs = [Hub(f"Hub{i}") for i in range(10)]
-    devices = [Device(f"PC{i}") for i in range(59, 91)]
+    hubs     = [Hub(f"Hub{i}") for i in range(9)]
+    devices  = [Device(f"PC{i}") for i in range(59, 113)]  # 54 end devices
 
-    # Connect routers
-    for r in routers:
-        for _ in range(random.randint(2, 5)):
-            r.connect(random.choice(switches + hubs))
+    si = 0
+    hi = 0
+    di = 0
 
-    # Connect switches/hubs to devices
-    for s in switches + hubs:
-        for _ in range(3):
-            s.connect(random.choice(devices))
+    for i, router in enumerate(routers):
+        router.connect(routers[(i + 1) % 6])
+
+        if i % 2 == 0:
+            peripherals = [switches[si], switches[si + 1], hubs[hi]]
+            si += 2
+            hi += 1
+        else:
+            peripherals = [switches[si], hubs[hi], hubs[hi + 1]]
+            si += 1
+            hi += 2
+
+        for peripheral in peripherals:
+            router.connect(peripheral)
+            for _ in range(3):
+                devices[di].home_router = router  # tag each device with its router
+                peripheral.connect(devices[di])
+                di += 1
+
+    for a, b in [(0, 3), (1, 4), (2, 5)]:
+        routers[a].connect(routers[b])
 
     return devices
 
@@ -209,8 +287,8 @@ def generate_data():
     return {
         "host": "example.com",
         "path": "/",
-        "src_ip": f"192.168.1.{random.randint(2,254)}",
-        "dst_ip": "93.184.216.34",
+        "src_ip": f"192.168.1.{random.randint(2, 254)}",
+        "dst_ip": f"93.184.216.{random.randint(2, 254)}",
         "src_port": random.randint(40000, 60000),
         "dst_port": 80,
         "src_mac": "AA:BB:CC:DD:EE:FF"
