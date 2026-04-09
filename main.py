@@ -65,10 +65,10 @@ class DataLinkLayer(Layer):
     def process(self, data):
         data["frame"] = {
             "src_mac": data["src_mac"],
-            "dst_mac": "FF:FF:FF:FF:FF:FF",
+            "dst_mac": data["dst_mac"],
             "packet": data["packet"]
         }
-        print(f"Data Link Layer: Frame | {data['src_mac']} → FF:FF:FF:FF:FF:FF")
+        print(f"Data Link Layer: Frame | {data['src_mac']} → {data['dst_mac']}")
         if self.next_layer:
             self.next_layer.process(data)
 
@@ -299,7 +299,7 @@ def build_network():
 # DATA GENERATION
 # =========================
 
-def generate_data(sender):
+def generate_data(sender, receiver):
     return {
         "host": "example.com",
         "path": "/",
@@ -307,7 +307,8 @@ def generate_data(sender):
         "dst_ip": f"93.184.216.{random.randint(2, 254)}",
         "src_port": random.randint(40000, 60000),
         "dst_port": 80,
-        "src_mac": sender.mac
+        "src_mac": sender.mac,
+        "dst_mac": receiver.mac
     }
 
 
@@ -326,7 +327,7 @@ def simulate():
         while sender == receiver:
             receiver = random.choice(devices)
 
-        data = generate_data(sender)
+        data = generate_data(sender, receiver)
         sender.send(data, receiver)
 
 
