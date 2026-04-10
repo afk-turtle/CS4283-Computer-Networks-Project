@@ -1,10 +1,8 @@
 import random
 import uuid
 
-# =========================
-# OSI LAYERS
-# =========================
 
+# OSI Layers
 class Layer:
     def __init__(self, next_layer=None):
         self.next_layer = next_layer
@@ -98,26 +96,17 @@ def build_stack():
     )
 
 
-# =========================
-# PACKET DELIVERED SIGNAL
-# =========================
 
+# Packet Delivering Signal
 class PacketDelivered(Exception):
     pass
 
-
-# =========================
-# HELPERS
-# =========================
-
+# Helpers
 def random_mac():
     return ':'.join(f'{random.randint(0, 255):02X}' for _ in range(6))
 
 
-# =========================
-# DEVICE CLASSES
-# =========================
-
+# Devices
 class Device:
     def __init__(self, name):
         self.name = name
@@ -132,10 +121,10 @@ class Device:
             other.connections.append(self)
 
     def send(self, data, destination):
-        print(f"\n\n===== {self.name} SENDING MESSAGE TO {destination.name} =====")
+        print(f"\n\n-------------------- {self.name} Sending Message To {destination.name} --------------------")
         print("Starting Encapsulation...\n")
         self.stack.process(data)
-        print("\n--- TRANSMISSION START ---")
+        print("\n-------------------- Transmission Starting --------------------")
         try:
             self.forward(data, destination, visited=set())
         except PacketDelivered:
@@ -151,7 +140,7 @@ class Device:
         print(f"IP: {data['packet']['src_ip']} → {data['packet']['dst_ip']}")
 
         if self == destination:
-            print(f"\n {self.name} ACCEPTED PACKET (DESTINATION REACHED)")
+            print(f"\n{self.name} ACCEPTED PACKET (DESTINATION REACHED) \n")
             raise PacketDelivered
 
         if not self.connections:
@@ -256,16 +245,12 @@ class Hub(Device):
                 device.forward(data, destination, visited)
 
 
-# =========================
-# NETWORK SETUP
-# =========================
-
+# Network Building
 def build_network():
     num_routers = random.randint(6, 10)
     routers = [Router(f"Router{i}") for i in range(num_routers)]
 
-    # Each router gets between 2-5 peripherals (mix of switches and hubs)
-    # We'll track how many of each we need first
+    # Each router gets between 2-5 peripherals (mix of switches and hubs), tracks them each
     router_peripheral_counts = [random.randint(2, 5) for _ in range(num_routers)]
     total_peripherals = sum(router_peripheral_counts)
 
@@ -274,11 +259,10 @@ def build_network():
     num_hubs = total_peripherals - num_switches
 
     switches = [Switch(f"Switch{i}") for i in range(num_switches)]
-    hubs     = [Hub(f"Hub{i}") for i in range(num_hubs)]
+    hubs = [Hub(f"Hub{i}") for i in range(num_hubs)]
     peripherals_pool = switches + hubs
     random.shuffle(peripherals_pool)
 
-    # Total devices = total_peripherals * 3
     total_devices = total_peripherals * 3
     devices = [Device(f"PC{i}") for i in range(59, 59 + total_devices)]
 
@@ -304,16 +288,16 @@ def build_network():
     for i in range(num_routers // 2):
         routers[i].connect(routers[i + num_routers // 2])
 
+    print("\n")
+    print("-------------------- GENERATED DEVICES --------------------")
     print(f"Network built: {num_routers} routers, {num_switches} switches, "
           f"{num_hubs} hubs, {total_devices} end devices")
+    print("-----------------------------------------------------------")
 
     return devices
 
 
-# =========================
-# DATA GENERATION
-# =========================
-
+# Data Generation
 def generate_data(sender, receiver):
     return {
         "host": "example.com",
@@ -327,15 +311,10 @@ def generate_data(sender, receiver):
     }
 
 
-# =========================
-# SIMULATION
-# =========================
-
+# Simulation
 def simulate():
     devices = build_network()
-
-    print("\n===== NETWORK SIMULATION START =====")
-
+    
     for i in range(10):
         sender = random.choice(devices)
         receiver = random.choice(devices)
@@ -346,9 +325,6 @@ def simulate():
         sender.send(data, receiver)
 
 
-# =========================
-# MAIN
-# =========================
-
+# Main
 if __name__ == "__main__":
     simulate()
